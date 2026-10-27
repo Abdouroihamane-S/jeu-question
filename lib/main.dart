@@ -183,6 +183,28 @@ final List<Category> categories = [
     Question('Quel est le pays le plus peuplé d\'Afrique ?', 'Le Nigeria',
         ['L\'Éthiopie', 'L\'Égypte', 'L\'Afrique du Sud']),
   ]),
+  Category('Informatique', Icons.computer_rounded, const Color(0xFF818CF8), [
+    Question('Que signifie « HTML » ?', 'HyperText Markup Language',
+        ['HighText Machine Language', 'HyperTool Multi Language', 'Home Text Markup Language']),
+    Question('Quel composant est surnommé le « cerveau » de l\'ordinateur ?',
+        'Le processeur (CPU)',
+        ['Le disque dur', 'La carte graphique', 'L\'alimentation']),
+    Question('Combien de bits contient un octet ?', '8', ['4', '16', '32']),
+    Question('Que signifie « RAM » ?', 'Mémoire vive',
+        ['Mémoire morte', 'Disque dur', 'Carte mère']),
+    Question('Quel langage de programmation est utilisé par Flutter ?', 'Dart',
+        ['Kotlin', 'Swift', 'Ruby']),
+    Question('Qui a créé le noyau Linux ?', 'Linus Torvalds',
+        ['Bill Gates', 'Steve Jobs', 'Mark Zuckerberg']),
+    Question('Que signifie le « S » de HTTPS ?', 'Secure (sécurisé)',
+        ['Standard', 'Server', 'Speed']),
+    Question('Qui a cofondé Microsoft avec Paul Allen ?', 'Bill Gates',
+        ['Steve Jobs', 'Elon Musk', 'Larry Page']),
+    Question('Quel langage sert principalement à mettre en forme les pages web ?',
+        'CSS', ['SQL', 'Python', 'Java']),
+    Question('Quel langage sert à interroger les bases de données ?', 'SQL',
+        ['CSS', 'HTML', 'C++']),
+  ]),
 ];
 
 // ============================================================
@@ -1005,7 +1027,8 @@ class _ConfettiPainter extends CustomPainter {
       canvas.drawRect(
         Rect.fromCenter(
             center: Offset.zero, width: p.size, height: p.size * 0.5),
-Paint()..color = p.color.fade(fade.clamp(0.0, 1.0).toDouble()),      );
+        Paint()..color = p.color.fade(fade.clamp(0.0, 1.0).toDouble()),
+      );
       canvas.restore();
     }
   }
