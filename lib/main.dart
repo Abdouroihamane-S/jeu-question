@@ -23,12 +23,14 @@ extension Alpha on Color {
 // ============================================================
 class Stats {
   static int best = 0;
+  static int money = 0;
   static String pseudo = '';
 
   static Future<void> load() async {
     try {
       final p = await SharedPreferences.getInstance();
       best = p.getInt('best') ?? 0;
+      money = p.getInt('money') ?? 0;
       pseudo = p.getString('pseudo') ?? '';
     } catch (_) {}
   }
@@ -45,8 +47,24 @@ class Stats {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setInt('best', best);
+      await p.setInt('money', money);
     } catch (_) {}
   }
+}
+
+// Gain en FCFA pour une bonne réponse, selon le numéro de la question.
+const List<int> kLadder = [
+  100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000, 32000
+];
+
+String fcfa(int v) {
+  final s = v.toString();
+  final b = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write(' ');
+    b.write(s[i]);
+  }
+  return '$b FCFA';
 }
 
 Future<void> main() async {
@@ -485,6 +503,18 @@ class _MenuPageState extends State<MenuPage> {
             ],
           ),
         ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: kGold.fade(0.12),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: kGold.fade(0.4)),
+          ),
+          child: Text('💰 Cagnotte : ${fcfa(Stats.money)}',
+              style: const TextStyle(
+                  color: kGold, fontWeight: FontWeight.w700)),
+        ),
       ],
     );
   }
@@ -556,6 +586,7 @@ class _QuizPageState extends State<QuizPage> {
   int score = 0;
   int correct = 0;
   int streak = 0;
+  int money = 0;
   int maxStreak = 0;
   int gain = 0;
   double timeLeft = maxTime;
@@ -608,6 +639,7 @@ class _QuizPageState extends State<QuizPage> {
         final streakBonus = min((streak - 1) * 25, 100);
         gain = 100 + timeBonus + streakBonus;
         score += gain;
+        money += kLadder[min(index, kLadder.length - 1)];
       } else {
         streak = 0;
         gain = 0;
@@ -618,14 +650,14 @@ class _QuizPageState extends State<QuizPage> {
   void _next() {
     if (index + 1 >= rounds.length) {
       final record = score > Stats.best;
-      if (record) {
-        Stats.best = score;
-        Stats.save();
-      }
+      if (record) Stats.best = score;
+      Stats.money += money;
+      Stats.save();
       FirebaseFirestore.instance.collection('scores').add({
         'pseudo': Stats.pseudo.isEmpty ? 'Anonyme' : Stats.pseudo,
         'score': score,
         'correct': correct,
+        'argent': money,
         'theme': widget.title,
         'date': FieldValue.serverTimestamp(),
       }).catchError((_) {});
@@ -638,6 +670,8 @@ class _QuizPageState extends State<QuizPage> {
             pool: widget.pool,
             score: score,
             correct: correct,
+            money: money,
+            totalMoney: Stats.money,
             total: rounds.length,
             maxStreak: maxStreak,
             isRecord: record,
@@ -969,6 +1003,9 @@ class _QuizPageState extends State<QuizPage> {
               children: [
                 Text('Question ${index + 1} / ${rounds.length}',
                     style: TextStyle(color: Colors.white.fade(0.6))),
+                Text('💰 ${fcfa(money)}',
+                    style: const TextStyle(
+                        color: kGold, fontWeight: FontWeight.w800)),
                 if (streak >= 2)
                   Text('🔥 Série x$streak',
                       style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -1104,6 +1141,8 @@ class ResultPage extends StatelessWidget {
   final List<Question> pool;
   final int score;
   final int correct;
+  final int money;
+  final int totalMoney;
   final int total;
   final int maxStreak;
   final bool isRecord;
@@ -1115,6 +1154,8 @@ class ResultPage extends StatelessWidget {
     required this.pool,
     required this.score,
     required this.correct,
+    required this.money,
+    required this.totalMoney,
     required this.total,
     required this.maxStreak,
     required this.isRecord,
@@ -1244,6 +1285,8 @@ class ResultPage extends StatelessWidget {
                     children: [
                       _chip('✅ $correct / $total bonnes réponses'),
                       _chip('🔥 Série max : $maxStreak'),
+                      _chip('💰 +${fcfa(money)}'),
+                      _chip('🏦 Cagnotte : ${fcfa(totalMoney)}'),
                     ],
                   ),
                   const SizedBox(height: 30),
