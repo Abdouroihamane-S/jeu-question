@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
@@ -24,6 +25,11 @@ extension Alpha on Color {
 class Stats {
   static int best = 0;
   static int money = 0;
+  static int stock5050 = 0;
+  static int stockTime = 0;
+  static int stockSkip = 0;
+  static int bestSurvival = 0;
+  static Set<String> badges = {};
   static String pseudo = '';
 
   static Future<void> load() async {
@@ -31,6 +37,11 @@ class Stats {
       final p = await SharedPreferences.getInstance();
       best = p.getInt('best') ?? 0;
       money = p.getInt('money') ?? 0;
+      stock5050 = p.getInt('stock5050') ?? 0;
+      stockTime = p.getInt('stockTime') ?? 0;
+      stockSkip = p.getInt('stockSkip') ?? 0;
+      bestSurvival = p.getInt('bestSurvival') ?? 0;
+      badges = (p.getStringList('badges') ?? <String>[]).toSet();
       pseudo = p.getString('pseudo') ?? '';
     } catch (_) {}
   }
@@ -48,6 +59,11 @@ class Stats {
       final p = await SharedPreferences.getInstance();
       await p.setInt('best', best);
       await p.setInt('money', money);
+      await p.setInt('stock5050', stock5050);
+      await p.setInt('stockTime', stockTime);
+      await p.setInt('stockSkip', stockSkip);
+      await p.setInt('bestSurvival', bestSurvival);
+      await p.setStringList('badges', badges.toList());
     } catch (_) {}
   }
 }
@@ -65,6 +81,54 @@ String fcfa(int v) {
     b.write(s[i]);
   }
   return '$b FCFA';
+}
+
+String rankName(int m) {
+  if (m >= 500000) return '👑 Champion';
+  if (m >= 150000) return '🏆 Expert';
+  if (m >= 40000) return '🎓 Initié';
+  return '🌱 Novice';
+}
+
+class Achievement {
+  final String id, emoji, name, desc;
+  const Achievement(this.id, this.emoji, this.name, this.desc);
+}
+
+const List<Achievement> kAchievements = [
+  Achievement('first', '🎮', 'Première partie', 'Termine ta première partie'),
+  Achievement('perfect', '💯', 'Partie parfaite', '10 bonnes réponses sur 10'),
+  Achievement('streak5', '🔥', 'En feu', 'Enchaîne 5 bonnes réponses'),
+  Achievement(
+      'survivor', '🛡️', 'Survivant', '15 bonnes réponses en mode survie'),
+  Achievement(
+      'rich', '💰', 'Gros portefeuille', 'Atteins 100 000 FCFA de cagnotte'),
+  Achievement('shopper', '🛒', 'Premier achat', 'Achète un joker à la boutique'),
+];
+
+/// Débloque les succès demandés et renvoie ceux qui sont nouveaux.
+List<Achievement> unlockAchievements(Set<String> ids) {
+  final fresh = <Achievement>[];
+  for (final a in kAchievements) {
+    if (ids.contains(a.id) && !Stats.badges.contains(a.id)) {
+      Stats.badges.add(a.id);
+      fresh.add(a);
+    }
+  }
+  if (fresh.isNotEmpty) Stats.save();
+  return fresh;
+}
+
+Future<void> shareWhatsApp(int score, int money) async {
+  final msg =
+      '🏆 J’ai fait $score points et gagné ${fcfa(money)} au quiz « Questions pour un champion » ! '
+      'Peux-tu me battre ? 👉 https://abdouroihamane-s.github.io/jeu-question/';
+  try {
+    await launchUrl(
+      Uri.parse('https://wa.me/?text=${Uri.encodeComponent(msg)}'),
+      mode: LaunchMode.externalApplication,
+    );
+  } catch (_) {}
 }
 
 Future<void> main() async {
@@ -439,14 +503,33 @@ class MenuPage extends StatefulWidget {
 }
 
 class _MenuPageState extends State<MenuPage> {
-  Future<void> _start(String title, Color color, List<Question> pool) async {
+  Future<void> _start(String title, Color color, List<Question> pool,
+      {bool survival = false}) async {
     await ensurePseudo(context);
     if (Stats.pseudo.isEmpty || !mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (_) => QuizPage(title: title, color: color, pool: pool)),
+          builder: (_) => QuizPage(
+              title: title, color: color, pool: pool, survival: survival)),
     ).then((_) => setState(() {}));
+  }
+
+  Widget _menuButton(String label, IconData icon, Widget Function() page) {
+    return OutlinedButton.icon(
+      onPressed: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => page()),
+      ).then((_) => setState(() {})),
+      icon: Icon(icon, color: kGold),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(50),
+        side: BorderSide(color: Colors.white.fade(0.3)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+      ),
+    );
   }
 
   Widget _header() {
@@ -511,7 +594,7 @@ class _MenuPageState extends State<MenuPage> {
             borderRadius: BorderRadius.circular(30),
             border: Border.all(color: kGold.fade(0.4)),
           ),
-          child: Text('💰 Cagnotte : ${fcfa(Stats.money)}',
+          child: Text('💰 ${fcfa(Stats.money)} • ${rankName(Stats.money)}',
               style: const TextStyle(
                   color: kGold, fontWeight: FontWeight.w700)),
         ),
@@ -538,9 +621,21 @@ class _MenuPageState extends State<MenuPage> {
               onTap: () => _start('Mix', const Color(0xFFA78BFA), all),
             ),
           ),
+          FadeSlide(
+            order: 2,
+            child: CategoryCard(
+              name: 'Mode survie',
+              subtitle:
+                  'Une erreur et c’est fini • record : ${Stats.bestSurvival}',
+              icon: Icons.favorite_rounded,
+              color: const Color(0xFFF43F5E),
+              onTap: () => _start('Survie', const Color(0xFFF43F5E), all,
+                  survival: true),
+            ),
+          ),
           for (var i = 0; i < categories.length; i++)
             FadeSlide(
-              order: i + 2,
+              order: i + 3,
               child: CategoryCard(
                 name: categories[i].name,
                 subtitle: '${categories[i].questions.length} questions',
@@ -551,6 +646,20 @@ class _MenuPageState extends State<MenuPage> {
               ),
             ),
           const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _menuButton('Boutique', Icons.storefront_rounded,
+                    () => const ShopPage()),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _menuButton('Succès', Icons.emoji_events_rounded,
+                    () => const AchievementsPage()),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           Text(
             '10 questions • 20 secondes par question\n'
             'Réponds vite pour gagner plus de points !',
@@ -570,8 +679,13 @@ class QuizPage extends StatefulWidget {
   final String title;
   final Color color;
   final List<Question> pool;
+  final bool survival;
   const QuizPage(
-      {super.key, required this.title, required this.color, required this.pool});
+      {super.key,
+      required this.title,
+      required this.color,
+      required this.pool,
+      this.survival = false});
 
   @override
   State<QuizPage> createState() => _QuizPageState();
@@ -595,13 +709,16 @@ class _QuizPageState extends State<QuizPage> {
   final Set<int> hidden = {};
   bool used5050 = false;
   bool usedTime = false;
+  bool failed = false;
   Timer? timer;
 
   @override
   void initState() {
     super.initState();
     final pool = List<Question>.from(widget.pool)..shuffle();
-    rounds = pool.take(10).map(Round.from).toList();
+    rounds = (widget.survival ? pool : pool.take(10).toList())
+        .map(Round.from)
+        .toList();
     results = List<bool?>.filled(rounds.length, null);
     _startTimer();
   }
@@ -639,25 +756,38 @@ class _QuizPageState extends State<QuizPage> {
         final streakBonus = min((streak - 1) * 25, 100);
         gain = 100 + timeBonus + streakBonus;
         score += gain;
-        money += kLadder[min(index, kLadder.length - 1)];
+        money += widget.survival
+            ? 500
+            : kLadder[min(index, kLadder.length - 1)];
       } else {
         streak = 0;
         gain = 0;
+        if (widget.survival) failed = true;
       }
     });
   }
 
   void _next() {
-    if (index + 1 >= rounds.length) {
+    if (index + 1 >= rounds.length || failed) {
       final record = score > Stats.best;
       if (record) Stats.best = score;
       Stats.money += money;
+      if (widget.survival && correct > Stats.bestSurvival) {
+        Stats.bestSurvival = correct;
+      }
+      final ids = <String>{'first'};
+      if (!widget.survival && correct == rounds.length) ids.add('perfect');
+      if (maxStreak >= 5) ids.add('streak5');
+      if (Stats.money >= 100000) ids.add('rich');
+      if (widget.survival && correct >= 15) ids.add('survivor');
+      final fresh = unlockAchievements(ids);
       Stats.save();
       FirebaseFirestore.instance.collection('scores').add({
         'pseudo': Stats.pseudo.isEmpty ? 'Anonyme' : Stats.pseudo,
         'score': score,
         'correct': correct,
         'argent': money,
+        'mode': widget.survival ? 'survie' : 'classique',
         'theme': widget.title,
         'date': FieldValue.serverTimestamp(),
       }).catchError((_) {});
@@ -672,9 +802,13 @@ class _QuizPageState extends State<QuizPage> {
             correct: correct,
             money: money,
             totalMoney: Stats.money,
-            total: rounds.length,
+            total: widget.survival
+                ? max(1, correct + (failed ? 1 : 0))
+                : rounds.length,
             maxStreak: maxStreak,
             isRecord: record,
+            survival: widget.survival,
+            newBadges: fresh,
           ),
         ),
       );
@@ -690,7 +824,12 @@ class _QuizPageState extends State<QuizPage> {
   }
 
   void _use5050() {
-    if (used5050 || revealed) return;
+    if (revealed || hidden.isNotEmpty) return;
+    if (used5050) {
+      if (Stats.stock5050 <= 0) return;
+      Stats.stock5050--;
+      Stats.save();
+    }
     final r = rounds[index];
     final wrong = [
       for (var i = 0; i < r.options.length; i++)
@@ -703,11 +842,24 @@ class _QuizPageState extends State<QuizPage> {
   }
 
   void _useTime() {
-    if (usedTime || revealed) return;
+    if (revealed) return;
+    if (usedTime) {
+      if (Stats.stockTime <= 0) return;
+      Stats.stockTime--;
+      Stats.save();
+    }
     setState(() {
       usedTime = true;
       timeLeft += 10;
     });
+  }
+
+  void _useSkip() {
+    if (revealed || Stats.stockSkip <= 0) return;
+    timer?.cancel();
+    Stats.stockSkip--;
+    Stats.save();
+    _next();
   }
 
   // ---------- Widgets ----------
@@ -902,8 +1054,13 @@ class _QuizPageState extends State<QuizPage> {
                     children: [
                       Icon(icon, size: 18, color: kGold),
                       const SizedBox(width: 8),
-                      Text(label,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Flexible(
+                        child: Text(label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
+                      ),
                     ],
                   ),
                 ),
@@ -919,8 +1076,19 @@ class _QuizPageState extends State<QuizPage> {
     if (!revealed) {
       return Row(
         children: [
-          _lifeline('50/50', Icons.filter_2_rounded, used5050, _use5050),
-          _lifeline('+10 s', Icons.more_time_rounded, usedTime, _useTime),
+          _lifeline(
+              Stats.stock5050 > 0 ? '50/50 ×${Stats.stock5050}' : '50/50',
+              Icons.filter_2_rounded,
+              used5050 && Stats.stock5050 <= 0,
+              _use5050),
+          _lifeline(
+              Stats.stockTime > 0 ? '+10 s ×${Stats.stockTime}' : '+10 s',
+              Icons.more_time_rounded,
+              usedTime && Stats.stockTime <= 0,
+              _useTime),
+          if (Stats.stockSkip > 0)
+            _lifeline('Passer ×${Stats.stockSkip}', Icons.skip_next_rounded,
+                false, _useSkip),
         ],
       );
     }
@@ -961,7 +1129,7 @@ class _QuizPageState extends State<QuizPage> {
             textStyle:
                 const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
           ),
-          child: Text(index + 1 >= rounds.length
+          child: Text(index + 1 >= rounds.length || failed
               ? 'Voir mon résultat'
               : 'Question suivante'),
         ),
@@ -996,12 +1164,15 @@ class _QuizPageState extends State<QuizPage> {
               ],
             ),
             const SizedBox(height: 14),
-            _segments(),
+            widget.survival ? const SizedBox(height: 6) : _segments(),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Question ${index + 1} / ${rounds.length}',
+                Text(
+                    widget.survival
+                        ? 'Question ${index + 1}'
+                        : 'Question ${index + 1} / ${rounds.length}',
                     style: TextStyle(color: Colors.white.fade(0.6))),
                 Text('💰 ${fcfa(money)}',
                     style: const TextStyle(
@@ -1146,6 +1317,8 @@ class ResultPage extends StatelessWidget {
   final int total;
   final int maxStreak;
   final bool isRecord;
+  final bool survival;
+  final List<Achievement> newBadges;
 
   const ResultPage({
     super.key,
@@ -1159,6 +1332,8 @@ class ResultPage extends StatelessWidget {
     required this.total,
     required this.maxStreak,
     required this.isRecord,
+    this.survival = false,
+    this.newBadges = const [],
   });
 
   Widget _chip(String text) {
@@ -1283,10 +1458,14 @@ class ResultPage extends StatelessWidget {
                     runSpacing: 10,
                     alignment: WrapAlignment.center,
                     children: [
-                      _chip('✅ $correct / $total bonnes réponses'),
+                      _chip(survival
+                          ? '✅ $correct bonnes réponses d’affilée'
+                          : '✅ $correct / $total bonnes réponses'),
                       _chip('🔥 Série max : $maxStreak'),
                       _chip('💰 +${fcfa(money)}'),
                       _chip('🏦 Cagnotte : ${fcfa(totalMoney)}'),
+                      for (final a in newBadges)
+                        _chip('🏅 Succès : ${a.emoji} ${a.name}'),
                     ],
                   ),
                   const SizedBox(height: 30),
@@ -1295,7 +1474,11 @@ class ResultPage extends StatelessWidget {
                       context,
                       MaterialPageRoute(
                           builder: (_) =>
-                              QuizPage(title: title, color: color, pool: pool)),
+                              QuizPage(
+                                  title: title,
+                                  color: color,
+                                  pool: pool,
+                                  survival: survival)),
                     ),
                     icon: const Icon(Icons.replay_rounded),
                     label: const Text('Rejouer'),
@@ -1309,6 +1492,20 @@ class ResultPage extends StatelessWidget {
                           borderRadius: BorderRadius.circular(16)),
                       textStyle: const TextStyle(
                           fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => shareWhatsApp(score, money),
+                    icon: const Icon(Icons.share_rounded),
+                    label: const Text('Partager sur WhatsApp'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(54),
+                      side: BorderSide(color: Colors.white.fade(0.3)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                      textStyle: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w600),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -1333,6 +1530,197 @@ class ResultPage extends StatelessWidget {
         ),
         if (ratio >= 0.7) const Positioned.fill(child: Confetti()),
       ],
+    );
+  }
+}
+
+// ============================================================
+//  BOUTIQUE
+// ============================================================
+class ShopPage extends StatefulWidget {
+  const ShopPage({super.key});
+
+  @override
+  State<ShopPage> createState() => _ShopPageState();
+}
+
+class _ShopPageState extends State<ShopPage> {
+  void _buy(int price, VoidCallback give) {
+    if (Stats.money < price) return;
+    setState(() {
+      Stats.money -= price;
+      give();
+    });
+    unlockAchievements({'shopper'});
+    Stats.save();
+  }
+
+  Widget _item(String name, String desc, IconData icon, int price, int stock,
+      VoidCallback give) {
+    final can = Stats.money >= price;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.fade(0.07),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.fade(0.15)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: kGold, size: 30),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(desc,
+                    style:
+                        TextStyle(color: Colors.white.fade(0.6), fontSize: 13)),
+                const SizedBox(height: 2),
+                Text('En stock : $stock',
+                    style: const TextStyle(color: kGold, fontSize: 13)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: can ? () => _buy(price, give) : null,
+            child: Text(fcfa(price)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBackground(
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+                const Text('Boutique',
+                    style:
+                        TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Center(
+              child: Text('🏦 ${fcfa(Stats.money)}',
+                  style: const TextStyle(
+                      color: kGold, fontSize: 24, fontWeight: FontWeight.w900)),
+            ),
+            const SizedBox(height: 4),
+            Center(
+              child: Text(rankName(Stats.money),
+                  style: TextStyle(color: Colors.white.fade(0.6))),
+            ),
+            const SizedBox(height: 20),
+            _item('50/50', 'Retire 2 mauvaises réponses', Icons.filter_2_rounded,
+                2000, Stats.stock5050, () => Stats.stock5050++),
+            _item('+10 secondes', 'Ajoute du temps sur une question',
+                Icons.more_time_rounded, 1500, Stats.stockTime,
+                () => Stats.stockTime++),
+            _item('Passer', 'Saute une question sans pénalité',
+                Icons.skip_next_rounded, 3000, Stats.stockSkip,
+                () => Stats.stockSkip++),
+            const SizedBox(height: 8),
+            Text(
+              'Les jokers achetés s’ajoutent à ceux offerts à chaque partie.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white.fade(0.5)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+//  SUCCÈS
+// ============================================================
+class AchievementsPage extends StatelessWidget {
+  const AchievementsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final done = Stats.badges.length;
+    return AppBackground(
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+                const Text('Succès',
+                    style:
+                        TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Center(
+              child: Text('$done / ${kAchievements.length} débloqués',
+                  style: TextStyle(color: Colors.white.fade(0.6))),
+            ),
+            const SizedBox(height: 16),
+            for (final a in kAchievements)
+              Opacity(
+                opacity: Stats.badges.contains(a.id) ? 1 : 0.4,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.fade(0.07),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Stats.badges.contains(a.id)
+                          ? kGold.fade(0.6)
+                          : Colors.white.fade(0.15),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(Stats.badges.contains(a.id) ? a.emoji : '🔒',
+                          style: const TextStyle(fontSize: 30)),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(a.name,
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 2),
+                            Text(a.desc,
+                                style: TextStyle(
+                                    color: Colors.white.fade(0.6),
+                                    fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
