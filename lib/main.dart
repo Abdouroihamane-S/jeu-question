@@ -3,6 +3,9 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart';
 
 // ============================================================
 //  THÈME
@@ -20,11 +23,21 @@ extension Alpha on Color {
 // ============================================================
 class Stats {
   static int best = 0;
+  static String pseudo = '';
 
   static Future<void> load() async {
     try {
       final p = await SharedPreferences.getInstance();
       best = p.getInt('best') ?? 0;
+      pseudo = p.getString('pseudo') ?? '';
+    } catch (_) {}
+  }
+
+  static Future<void> savePseudo(String v) async {
+    pseudo = v;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString('pseudo', v);
     } catch (_) {}
   }
 
@@ -38,8 +51,44 @@ class Stats {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+  } catch (_) {}
   await Stats.load();
   runApp(const QuizApp());
+}
+
+Future<void> ensurePseudo(BuildContext context) async {
+  if (Stats.pseudo.isNotEmpty) return;
+  final c = TextEditingController();
+  final v = await showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Ton pseudo'),
+      content: TextField(
+        controller: c,
+        maxLength: 20,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Ex : Abdou'),
+        onSubmitted: (_) {
+          final t = c.text.trim();
+          if (t.isNotEmpty) Navigator.pop(ctx, t);
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            final t = c.text.trim();
+            if (t.isNotEmpty) Navigator.pop(ctx, t);
+          },
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+  if (v != null) await Stats.savePseudo(v);
 }
 
 class QuizApp extends StatelessWidget {
@@ -372,7 +421,9 @@ class MenuPage extends StatefulWidget {
 }
 
 class _MenuPageState extends State<MenuPage> {
-  void _start(String title, Color color, List<Question> pool) {
+  Future<void> _start(String title, Color color, List<Question> pool) async {
+    await ensurePseudo(context);
+    if (Stats.pseudo.isEmpty || !mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -571,6 +622,13 @@ class _QuizPageState extends State<QuizPage> {
         Stats.best = score;
         Stats.save();
       }
+      FirebaseFirestore.instance.collection('scores').add({
+        'pseudo': Stats.pseudo.isEmpty ? 'Anonyme' : Stats.pseudo,
+        'score': score,
+        'correct': correct,
+        'theme': widget.title,
+        'date': FieldValue.serverTimestamp(),
+      }).catchError((_) {});
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
